@@ -1,0 +1,579 @@
+============================================================
+RINGKASAN FITUR - AUTO CV SCREENING (QA INTERVIEW)
+============================================================
+
+=== FITUR 1: Halaman Utama (gui.py) ===
+
+[Apa ini?]
+Halaman utama yang dilihat HR. Upload CV PDF + input Job Description 
++ tombol proses + tampil ranking.
+
+[Gimana cara kerjanya?]
+1. HR upload PDF (bisa banyak) di sidebar
+2. Input job description di text area
+3. Klik "Mulai Analisis & Ranking Kandidat"
+4. Sistem ekstrak teks dari semua PDF
+5. AI matching & ranking
+6. Tampil hasil urut dari skor tertinggi
+
+[Kenapa pake Streamlit?]
+Cepat bikin prototype internal tool. Cocok untuk tim HR, 
+nggak perlu frontend complex. Bisa langsung jalan di browser.
+
+[Apa itu lazy loading?]
+Library AI berat (sentence-transformers) baru dipanggil pas tombol 
+diklik, bukan pas awal buka halaman. Biar halaman pertama cepet loading.
+
+
+=== FITUR 2: Ekstraktor PDF (extractor.py) ===
+
+[Apa ini?]
+Mengubah file PDF jadi teks mentah yang bisa dibaca AI.
+
+[Pake library apa?]
+pdfplumber. Lebih akurat dari PyPDF2, bisa handle tabel & kolom.
+
+[Input -> Output?]
+File PDF -> Teks string panjang
+
+
+=== FITUR 3: Structured Parser (parser.py) ===
+
+[Apa ini?]
+Mengubah teks mentah jadi data terstruktur: nama, email, skills, 
+pendidikan, pengalaman, sertifikasi.
+
+[Ada 7 fungsi extractor?]
+Iya:
+- extract_name() -> String nama
+- extract_email() -> String email  
+- extract_phone() -> String telepon
+- extract_skills() -> List skill (cocokin 70+ keywords)
+- extract_education() -> List {degree, institusi}
+- extract_experience_years() -> Angka tahun
+- extract_certifications() -> List sertifikasi
+- parse_cv() -> Gabungan semua dalam 1 dict
+
+[Metodenya pake apa?]
+Regex pattern matching + keyword dictionary. Bukan ML, jadi 
+sederhana tapi cukup untuk CV standar.
+
+[Keterbatasannya?]
+- Rule-based, bukan AI NER -> kurang akurat untuk CV unik
+- Skill cuma 70+ keywords yang didefinisikan
+- Nama kadang gagal kalau format nggak standar
+
+
+=== FITUR 4: Semantic Matcher (matcher.py) ===
+
+[INI INTI AI-NYA]
+
+[Apa ini?]
+Menggunakan NLP untuk memahami makna CV dan Job Description, 
+lalu hitung skor kecocokan 0-100%.
+
+[Modelnya apa?]
+all-MiniLM-L6-v2 dari Sentence Transformers.
+Ukuran cuma 80MB, cepat, bisa jalan di laptop tanpa GPU.
+
+[Gimana cara kerjanya?]
+1. Job Desc di-encode -> vector angka (384 angka)
+2. Teks CV di-encode -> vector angka (384 angka)
+3. Hitung cosine similarity antara kedua vector
+4. Hasil 0-1 dikali 100 -> skor persen
+
+[Apa bedanya sama keyword matching biasa?]
+Keyword matching: cari kata "machine learning" di teks
+Semantic matching: paham bahwa "ML" = "machine learning" secara makna, 
+meskipun kata-katanya beda. Jauh lebih akurat.
+
+[Kenapa cosine similarity?]
+Sederhana, cepat, standar untuk perbandingan vector embeddings.
+Nilai -1 (berlawanan) sampai 1 (sama persis).
+
+[Bisa ganti model?]
+Bisa. Alternatif: all-mpnet-base-v2 (lebih akurat tapi lebih besar), 
+atau multilingual models khusus Bahasa Indonesia.
+
+[Kecepatan?]
+Sangat cepat. encode 1 teks dalam milidetik.
+Ratusan CV bisa diproses dalam hitungan menit.
+
+
+=== FITUR 5: Gap Analyzer (analyzer.py) ===
+
+[Apa ini?]
+Setelah dapat skor semantic, fitur ini menganalisis DETAIL: 
+skill apa cocok, skill apa kurang, cek pengalaman, kasih rekomendasi.
+
+[Apa outputnya?]
+1. KELEBIHAN: Skill sesuai, pengalaman cukup, semantic match tinggi
+2. KEKURANGAN: Skill kurang, pengalaman kurang, semantic match rendah
+3. REKOMENDASI: LOLOS WAWANCARA / PERTIMBANGKAN / TIDAK LOLOS
+
+[Kriteria rekomendasinya?]
+- Skor >= 70 + exp cukup + kurang skill <= 1 -> LOLOS WAWANCARA
+- Skor >= 50 + exp cukup -> PERTIMBANGKAN  
+- Skor < 50 atau exp kurang -> TIDAK LOLOS
+
+[Kenapa perlu Gap Analysis?]
+Skor doang nggak cukup. HR perlu tahu ALASAN kenapa cocok/tidak.
+Gap analysis ngasih penjelasan yang bisa dipertanggungjawabkan 
+ke user/stakeholder.
+
+[Threshold bisa diubah?]
+Bisa. Angka 70/50 bisa disesuaikan per posisi. Misal posisi 
+senior butuh threshold lebih tinggi.
+
+
+=== FITUR 6: Bias Mitigation (bias_mitigation.py) ===
+
+[Apa ini?]
+Fitur untuk memastikan sistem seleksi FAIR dan tidak diskriminatif.
+Ini jawaban untuk concern etika AI dalam hiring.
+
+[Apa aja fungsinya?]
+1. ANONIMISASI: Hapus email, telepon, NIK dari CV
+2. DETeksi BIAS USIA: Deteksi tanggal lahir, umur
+3. DETeksi BIAS SUKU/AGAMA: Deteksi kata suku, agama
+4. DETeksi BIAS GENDER: Hitung kata maskulin vs feminin
+5. FAIRNESS SCORE: Hitung distribusi skor antar kandidat
+
+[Contoh deteksi bias?]
+"cv.txt: Lahir 15 Maret 1995, Suku: Jawa"
+-> Peringatan: Informasi usia terdeteksi
+-> Peringatan: Informasi suku/agama terdeteksi
+
+[Fairness Score itu apa?]
+Hitung standar deviasi skor semua kandidat.
+- Std dev < 30 -> distribusi normal, wajar
+- Std dev >= 30 -> distribusi lebar, perlu dicek ada bias atau tidak
+
+[Ini bisa menghilangkan bias sepenuhnya?]
+Tidak. Ini baru deteksi AWAL. Untuk mitigasi total perlu:
+- Anonymization saat proses matching (bukan cuma tampilan)
+- Diverse training data
+- Audit berkala oleh tim HR
+
+
+=== FITUR 7: Exporter (exporter.py) ===
+
+[Apa ini?]
+Export hasil seleksi ke file yang bisa dibuka di Excel.
+
+[Format apa aja?]
+1. CSV -> Bisa dibuka Excel, ada kolom: Rank, Kandidat, Skor, 
+   Rekomendasi, Kelebihan, Kekurangan, Alasan
+2. TXT -> Laporan ringkasan: total kandidat, peringkat, 
+   daftar kandidat lolos wawancara
+
+
+=== FITUR 8: Scraper (scraper.py) ===
+
+[Apa ini?]
+Simulasi pengumpulan CV dari job portal. 
+MASIH PLACEHOLDER, belum implementasi sungguhan.
+
+[Nanti mau pake apa?]
+- Selenium -> Buka portal ketahuan (LinkedIn, Jobstreet), download CV
+- Email parser -> Ambil attachment CV dari email lamaran
+- API -> Integrasi langsung (kalau portal punya API)
+
+
+=== FITUR 9-11: Halaman Streamlit (pages/) ===
+
+Ada 3 halaman tambahan:
+
+[2_Dashboard_Analytics.py]
+- Statistik: total kandidat, rata-rata skor, skor tertinggi/rendah
+- Bar chart distribusi skor
+- Bar chart rekomendasi (LOLOS/PERTIMBANGKAN/TIDAK)
+- Fairness check
+
+[3_Export_Report.py]
+- Download hasil seleksi sebagai CSV
+- Download sebagai TXT
+- Preview laporan langsung di halaman
+
+[4_Bias_Audit.py]
+- Anonimisasi CV (toggle on/off)
+- Deteksi bias per CV
+- Fairness score
+- Info keterbatasan deteksi bias
+
+
+============================================================
+FLOW END-TO-END (dari HR upload sampai dapat hasil)
+============================================================
+
+HR upload PDF (sidebar gui.py)
+       |
+       v
+extract_text_from_file() (extractor.py - pdfplumber)
+       |
+       v
+parse_cv() (parser.py - regex)
+       |  -> {nama, email, skills, pendidikan, pengalaman, sertifikasi}
+       v
+rank_candidates() (matcher.py - AI)
+       |  -> model.encode() + cosine_similarity -> skor 0-100%
+       v
+analyze_gap() (analyzer.py)
+       |  -> {strengths, weaknesses, rekomendasi}
+       v
+Tampil di GUI -> expandable ranking + progress bar
+       |
+       +-> Dashboard Analytics (distribusi + statistik)
+       +-> Export Report (CSV + TXT)
+       +-> Bias Audit (anonimisasi + fairness)
+
+
+============================================================
+PERTANYAAN UMUM WAWANCARA + JAWABAN
+============================================================
+
+Q: "Ceritakan project ini secara singkat"
+A: Sistem otomatisasi seleksi CV pake AI. HR upload CV + job desc, 
+sistem paham maknanya, kasih skor kecocokan, urutin dari yg paling 
+cocok, kasih alasan detail. Juga ada fitur bias audit biar fair.
+
+Q: "Kenapa pake Streamlit?"
+A: Cepat bikin prototype, cocok buat internal tool HR, nggak perlu 
+frontend rumit. Tinggal jalanin 1 command langsung bisa dipake.
+
+Q: "Model AI nya apa?"
+A: all-MiniLM-L6-v2 dari Sentence Transformers. Ukuran cuma 80MB, 
+bisa jalan di laptop tanpa GPU, encode teks dalam milidetik.
+
+Q: "Apa bedanya sama ATS biasa?"
+A: ATS biasa cari keyword doang. Sistem ini paham MAKNA. Misal JD 
+bilang "machine learning", CV bilang "ML" -> ATS gagal, sistem ini 
+paham keduanya sama.
+
+Q: "Berapa akurat sistem ini?"
+A: Untuk CV standar cukup akurat. Tapi ini prototype, masih bisa 
+ditingkatkan dengan fine-tuning model pake dataset CV Indonesia.
+
+Q: "Apa tantangan terbesarnya?"
+A: Ekstrak info dari PDF yang formatnya nggak seragam. Saya atasin 
+pake regex pattern bertahap. Tantangan lain: pastiin hasil ranking 
+tidak bias.
+
+Q: "Bagaimana ngatasin bias?"
+A: Saya buat module bias_mitigation khusus:
+- Anonimisasi CV (hapus data pribadi)
+- Deteksi usia, gender, suku
+- Pantau distribusi skor
+- Halaman audit bias khusus untuk transparansi
+
+Q: "Hasilnya keluarannya apa?"
+A: Ranking kandidat terurut (skor 0-100%), lengkap kelebihan & 
+kekurangan, rekomendasi LOLOS/TIDAK, bisa di-export CSV & TXT.
+
+Q: "Apa tech stack-nya?"
+A: Python, Streamlit (frontend), pdfplumber (PDF), Sentence 
+Transformers (NLP/AI), scikit-learn (cosine similarity), regex (parser).
+
+Q: "Apa rencana improvement?"
+A: 1. Integrasi scraping job portal pake Selenium
+   2. Fine-tune model untuk CV Bahasa Indonesia
+   3. Generate alasan pake LLM (lebih natural)
+   4. A/B testing validasi akurasi
+   5. Dashboard HR analytics real-time
+
+Q: "Sistem ini bisa dipake production?"
+A: Untuk production perlu:
+- Pindah dari session memory ke database
+- Tambah authentication/authorization
+- Integrasi dengan email/scraping
+- Auto-scaling kalau banyak user
+- Monitoring & logging
+
+============================================================
+CODE SNIPPETS PENTING (UNTUK SESI TUNJUKKAN KODE)
+============================================================
+Berikut potongan kode yang WAJIB dihafal/dipahami. Pas interview 
+kalo ditanya "coba tunjukkan implementasinya", ini yg bisa kamu 
+tunjukkan.
+
+
+=== 1. INTI AI: Semantic Matching (matcher.py) ===
+
+Q: "Coba tunjukkan kode AI-nya bagaimana?"
+
+@st.cache_resource
+def get_model():
+    from sentence_transformers import SentenceTransformer
+    return SentenceTransformer('all-MiniLM-L6-v2')
+
+def calculate_match_score(cv_text, job_desc_text):
+    from sklearn.metrics.pairwise import cosine_similarity
+    
+    model = get_model()
+    embeddings = model.encode([job_desc_text, cv_text])
+    
+    job_vector = embeddings[0].reshape(1, -1)
+    cv_vector = embeddings[1].reshape(1, -1)
+    
+    score = cosine_similarity(job_vector, cv_vector)[0][0]
+    return round(score * 100, 2)
+
+def rank_candidates(cv_data, job_desc_text):
+    results = []
+    for cv in cv_data:
+        score = calculate_match_score(cv["teks"], job_desc_text)
+        reason = generate_reasoning(score)
+        results.append({
+            "Kandidat": cv["nama_file"],
+            "Score_Kecocokan": score,
+            "Alasan": reason
+        })
+    return sorted(results, key=lambda x: x["Score_Kecocokan"], reverse=True)
+
+[Penjelasan untuk interview:]
+- @st.cache_resource: Model AI cuma di-load SATU KALI, 
+  meskipun tombol diklik berulang. Irit memory & waktu.
+- model.encode(): Ubah teks jadi vector angka (384 angka per teks)
+- cosine_similarity(): Ukur kemiripan dua vector
+- score * 100: Konversi dari range 0-1 jadi 0-100%
+- sorted reverse: Urut dari skor tertinggi ke terendah
+
+
+=== 2. Gap Analysis + Rekomendasi (analyzer.py) ===
+
+Q: "Bagaimana sistem menentukan rekomendasi LOLOS/TIDAK?"
+
+def analyze_gap(cv_text, job_desc):
+    cv_info = parse_cv(cv_text)
+    req_skills, min_exp = _extract_job_requirements(job_desc)
+
+    # Bandingkan skill CV dengan requirement
+    matched = [s for s in req_skills if s.lower() in cv_skills_lower]
+    missing = [s for s in req_skills if s.lower() not in cv_skills_lower]
+
+    # Cek tahun pengalaman
+    if cv_exp < min_exp:
+        exp_ok = False
+        weaknesses.append(f"Pengalaman {cv_exp} thn < min {min_exp} thn")
+    else:
+        strengths.append(...)
+
+def get_recommendation(gap_result):
+    score = gap_result["semantic_score"]
+    missing = gap_result["skills_missing"]
+    exp_ok = gap_result["exp_requirement_met"]
+    if score >= 70 and exp_ok and len(missing) <= 1:
+        return "LOLOS WAWANCARA"
+    elif score >= 50 and exp_ok:
+        return "PERTIMBANGKAN"
+    else:
+        return "TIDAK LOLOS"
+
+[Penjelasan untuk interview:]
+- Parameter penentu: skor semantic (>=70), pengalaman (cukup),
+  kekurangan skill (max 1)
+- Logic ini bisa disesuaikan per posisi. Misal senior dev 
+  butuh threshold lebih tinggi.
+- Outputnya transparan: ada detail skill apa yg kurang, bukan 
+  cuma ya/tidak.
+
+
+=== 3. Bias Mitigation & Anonimisasi (bias_mitigation.py) ===
+
+Q: "Bagaimana kode untuk deteksi bias?"
+
+def anonymize_text(text):
+    # Hapus email
+    text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[EMAIL DIHAPUS]', text)
+    # Hapus telepon Indonesia
+    text = re.sub(r'\+62[\d\s\-\(\)]{8,15}', '[TELEPON DIHAPUS]', text)
+    return text
+
+def detect_potential_bias(cv_text):
+    text_lower = cv_text.lower()
+    warnings = []
+    # Deteksi usia (pola "25 tahun", "lahir 1995", dll)
+    for pat in AGE_INDICATORS:
+        if re.search(pat, text_lower, re.IGNORECASE):
+            warnings.append("Informasi usia terdeteksi (bisa memicu bias usia)")
+            break
+    # Deteksi suku/agama
+    for pat in ETHNIC_INDICATORS:
+        if re.search(pat, text_lower, re.IGNORECASE):
+            warnings.append("Informasi suku/agama terdeteksi (bisa memicu bias)")
+            break
+    # Deteksi gender dari gaya bahasa
+    male_count = sum(1 for w in GENDER_WORDS_MALE if w in text_lower)
+    female_count = sum(1 for w in GENDER_WORDS_FEMALE if w in text_lower)
+    if male_count > female_count + 2:
+        warnings.append("Gaya bahasa cenderung maskulin")
+    elif female_count > male_count + 2:
+        warnings.append("Gaya bahasa cenderung feminin")
+    return warnings
+
+def score_fairness(gap_results_list):
+    scores = [r["semantic_score"] for r in gap_results_list]
+    mean_s = sum(scores) / len(scores)
+    std_dev = (sum((s - mean_s)**2 for s in scores) / len(scores))**0.5
+    return {
+        "rata_rata_skor": round(mean_s, 2),
+        "standar_deviasi": round(std_dev, 2),
+        "distribusi_wajar": std_dev < 30,
+    }
+
+[Penjelasan untuk interview:]
+- Anonimisasi: hapus PII (Personal Identifiable Information) 
+  sebelum CV diproses. Ini langkah pertama mitigasi bias.
+- Deteksi usia: cari pola "25 tahun", "born 1995", "tanggal lahir"
+- Fairness score: kalau distribusi skor terlalu lebar (std > 30),
+  ada indikasi sistem bias ke kelompok tertentu.
+- Ini masih rule-based, belum ML. Ke depannya bisa pake model 
+  fairness detection yg lebih canggih.
+
+
+=== 4. Structured Parser (parser.py) ===
+
+Q: "Bagaimana kode untuk ekstrak skill dan pengalaman?"
+
+# Extract skills dari 70+ keywords
+SKILL_KEYWORDS = [
+    "python", "java", "sql", "docker", "machine learning", ...
+]
+
+def extract_skills(text):
+    text_lower = text.lower()
+    found = []
+    for skill in SKILL_KEYWORDS:
+        pattern = r'\b' + re.escape(skill) + r'\b'
+        if re.search(pattern, text_lower):
+            found.append(skill.title())
+    return list(dict.fromkeys(found))  # unique, urut sesuai muncul
+
+def extract_experience_years(text):
+    patterns = [
+        r'(\d+)[\+]?\s*(?:tahun|years|thn|yr)\s*(?:pengalaman|experience)',
+        r'(?:pengalaman|experience)[^\d]{0,30}(\d+)[\+]?\s*(?:tahun|years|thn|yr)',
+        r'(\d+)[\+]?\s*(?:tahun|years|thn|yr)',
+    ]
+    for pat in patterns:
+        match = re.search(pat, text.lower())
+        if match:
+            return int(match.group(1))
+    return None
+
+[Penjelasan untuk interview:]
+- Skill matching: cocokin 70+ keywords skill ke teks CV
+- Regex fleksibel: handle "5 tahun pengalaman" dan "pengalaman 5 tahun"
+- Ini masih rule-based. Ke depannya bisa pake NER model biar
+  lebih akurat untuk CV yang formatnya unik.
+
+
+=== 5. Main GUI Flow (gui.py) ===
+
+Q: "Bagaimana alur dari upload sampai hasil?"
+
+def run_app():
+    # Sidebar: upload file
+    uploaded_files = st.file_uploader("Pilih file PDF CV", 
+        type=["pdf"], accept_multiple_files=True)
+    
+    # Main area: job description
+    job_desc = st.text_area("Masukkan Detail Job Description:", height=200)
+    
+    # Tombol proses
+    if st.button("Mulai Analisis & Ranking Kandidat", type="primary"):
+        # Lazy loading: import library BERAT di sini (bukan di atas)
+        from matcher import rank_candidates
+        
+        # 1. Ekstrak teks dari setiap PDF
+        cv_data = []
+        for file in uploaded_files:
+            text = extract_text_from_file(file)
+            cv_data.append({"nama_file": file.name, "teks": text})
+        
+        # 2. Proses matching & ranking
+        ranked_list = rank_candidates(cv_data, job_desc)
+        
+        # 3. Tampilkan hasil
+        for i, res in enumerate(ranked_list):
+            with st.expander(f"Rank {i+1} - {res['Kandidat']} (Skor: {score_val:.2f}%)"):
+                st.progress(score_val / 100.0)
+                st.info(res['Alasan'])
+
+[Penjelasan untuk interview:]
+- Lazy loading: from matcher import rank_candidates di dalam 
+  tombol, bukan di atas file. Biar halaman pertama cepet loading.
+- Streamlit expander: hasil tiap kandidat bisa di-expand/collapse
+- Progress bar: visualisasi skor 0-100%
+
+
+=== 6. Export CSV (exporter.py) ===
+
+Q: "Bagaimana kode export ke Excel?"
+
+def export_to_csv(ranked_results):
+    output = io.StringIO()
+    fieldnames = ["Rank", "Kandidat", "Score_Kecocokan", "Rekomendasi", 
+                  "Kelebihan", "Kekurangan", "Alasan"]
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    for i, r in enumerate(ranked_results, start=1):
+        writer.writerow({
+            "Rank": i,
+            "Kandidat": r.get("Kandidat", ""),
+            "Score_Kecocokan": r.get("Score_Kecocokan", ""),
+            "Rekomendasi": r.get("Rekomendasi", ""),
+            "Kelebihan": r.get("Kelebihan", ""),
+            "Kekurangan": r.get("Kekurangan", ""),
+            "Alasan": r.get("Alasan", ""),
+        })
+    return output.getvalue()
+
+[Penjelasan untuk interview:]
+- Export 7 kolom lengkap: Ranking, Nama file, Skor, Rekomendasi,
+  Kelebihan, Kekurangan, Alasan
+- Output CSV bisa langsung dibuka Excel
+- HR tinggal download dan lanjut proses interview
+
+
+=== 7. PDF Extractor (extractor.py) ===
+
+Q: "Bagaimana kode baca PDF?"
+
+def extract_text_from_file(uploaded_file):
+    text = ""
+    with pdfplumber.open(uploaded_file) as pdf:
+        for page in pdf.pages:
+            extracted = page.extract_text()
+            if extracted:
+                text += extracted + "\n"
+    return text
+
+[Penjelasan untuk interview:]
+- pake pdfplumber, library Python untuk baca PDF
+- Loop setiap halaman, ambil teksnya
+- Error handling: kalau gagal baca, return string kosong
+- Bisa handle file langsung dari Streamlit (file object)
+
+
+=== 8. Simulasi Scraper (scraper.py) ===
+
+Q: "Scraper-nya bagaimana?"
+
+def auto_collect_cvs(source_folder="download_simulasi", 
+                     target_folder="data/cv_kandidat"):
+    if not os.path.exists(target_folder):
+        os.makedirs(target_folder)
+    print("Mengumpulkan CV secara otomatis dari job portal...")
+    return len(os.listdir(target_folder))
+
+[Penjelasan untuk interview:]
+- Ini masih SIMULASI / placeholder
+- Untuk production: integrasi Selenium buat download CV 
+  dari LinkedIn/Jobstreet, atau email parser
+- Folder target: tempat CV yang terkumpul akan diproses
+
+
+============================================================
+(File ini auto-generated untuk persiapan wawancara)
+============================================================

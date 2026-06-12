@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-06-10T22:20:09.344872",
+  "results": [
+    {
+      "name": "Bayu",
+      "score": 57.28,
+      "email": "Bayu@gmail.com"
+    },
+    {
+      "name": "MOHAMAD",
+      "score": 55.81,
+      "email": "mohamad@gmail.com"
+    },
+    {
+      "name": "INDRI",
+      "score": 54.95,
+      "email": "Indri@gmail.com"
+    },
+    {
+      "name": "Dani",
+      "score": 52.24,
+      "email": "Dani19@gmail.com"
+    },
+    {
+      "name": "Permana Abadi",
+      "score": 43.07,
+      "email": "permanaabadi@gmail.com"
+    }
+  ]
+}
